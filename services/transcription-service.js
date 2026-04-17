@@ -1,6 +1,5 @@
 require('colors');
 const WebSocket = require('ws');
-const { Buffer } = require('node:buffer');
 const EventEmitter = require('events');
 
 class TranscriptionService extends EventEmitter {
@@ -8,18 +7,12 @@ class TranscriptionService extends EventEmitter {
     super();
 
     this.finalResult = '';
-    this.speechFinal = false;
 
-    this.ws = new WebSocket('wss://api.elevenlabs.io/v1/speech-to-text/stream', {
+    this.ws = new WebSocket('wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime', {
       headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY },
     });
 
     this.ws.on('open', () => {
-      // Send stream config once connection is open
-      this.ws.send(JSON.stringify({
-        type: 'stream_start',
-        audio_format: 'mulaw_8000',
-      }));
       console.log('STT -> ElevenLabs connection opened'.green);
     });
 
@@ -27,21 +20,18 @@ class TranscriptionService extends EventEmitter {
       try {
         const msg = JSON.parse(data);
 
-        if (msg.type === 'interim_transcript') {
-          const text = msg.text || '';
-          this.emit('utterance', text);
-          console.log(`👂 Interim transcript: "${text}"`);
+        if (msg.type === 'transcript') {
+          const text = msg.transcript_event?.text || '';
+          if (!text.trim()) return;
 
-        } else if (msg.type === 'final_transcript') {
-          const text = msg.text || '';
-          if (text.trim().length > 0) {
+          if (msg.transcript_event?.is_final) {
             this.finalResult += ` ${text}`;
-            this.speechFinal = true;
             this.emit('transcription', this.finalResult.trim());
             this.finalResult = '';
-            this.speechFinal = false;
+          } else {
+            this.emit('utterance', text);
+            console.log(`👂 Interim transcript: "${text}"`);
           }
-
         } else if (msg.type === 'error') {
           console.error('STT -> ElevenLabs error:', msg);
         }
@@ -62,8 +52,9 @@ class TranscriptionService extends EventEmitter {
   send(payload) {
     if (this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
-        type: 'audio_chunk',
-        audio: payload, // already base64 from Twilio
+        message_type: 'input_audio_chunk',
+        audio_base_64: payload, // already base64 from Twilio
+        sample_rate: 8000,
       }));
     }
   }
