@@ -16,6 +16,12 @@ const VoiceResponse = require('twilio').twiml.VoiceResponse;
 const app = express();
 ExpressWs(app);
 
+// Add this
+app.use((req, res, next) => {
+  res.setHeader('Connection', 'keep-alive');
+  next();
+});
+
 const PORT = process.env.PORT || 3000;
 
 // Handle incoming calls from Twilio
