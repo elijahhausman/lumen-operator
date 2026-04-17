@@ -32,7 +32,7 @@ class TextToSpeechService extends EventEmitter {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            text: partialResponse,
+            text: partialResponse.replace(/•/g, ' ').trim(),
           }),
         }
       );
