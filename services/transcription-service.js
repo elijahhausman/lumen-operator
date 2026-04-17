@@ -19,21 +19,21 @@ class TranscriptionService extends EventEmitter {
     this.ws.on('message', (data) => {
       try {
         const msg = JSON.parse(data);
+        console.log('STT -> raw message:'.cyan, JSON.stringify(msg));
 
-        if (msg.type === 'transcript') {
-          const text = msg.transcript_event?.text || '';
-          if (!text.trim()) return;
+        const text = msg.transcript_event?.text || msg.text || '';
+        const isFinal = msg.transcript_event?.is_final ?? msg.is_final ?? false;
 
-          if (msg.transcript_event?.is_final) {
-            this.finalResult += ` ${text}`;
-            this.emit('transcription', this.finalResult.trim());
-            this.finalResult = '';
-          } else {
-            this.emit('utterance', text);
-            console.log(`👂 Interim transcript: "${text}"`);
-          }
-        } else if (msg.type === 'error') {
-          console.error('STT -> ElevenLabs error:', msg);
+        if (!text.trim()) return;
+
+        if (isFinal) {
+          this.finalResult += ` ${text}`;
+          console.log(`💬 FINAL TRANSCRIPT: "${this.finalResult.trim()}"`.yellow);
+          this.emit('transcription', this.finalResult.trim());
+          this.finalResult = '';
+        } else {
+          console.log(`👂 Interim: "${text}"`);
+          this.emit('utterance', text);
         }
       } catch (err) {
         console.error('STT -> Failed to parse message:', err);
@@ -44,8 +44,8 @@ class TranscriptionService extends EventEmitter {
       console.error('STT -> ElevenLabs WebSocket error:', err);
     });
 
-    this.ws.on('close', () => {
-      console.log('STT -> ElevenLabs connection closed'.yellow);
+    this.ws.on('close', (code, reason) => {
+      console.log(`STT -> ElevenLabs connection closed (${code}: ${reason || 'none'})`.yellow);
     });
   }
 
@@ -53,7 +53,7 @@ class TranscriptionService extends EventEmitter {
     if (this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
         message_type: 'input_audio_chunk',
-        audio_base_64: payload, // already base64 from Twilio
+        audio_base_64: payload,
         sample_rate: 8000,
       }));
     }

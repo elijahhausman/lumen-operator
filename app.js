@@ -105,16 +105,11 @@ app.ws('/connection', (ws) => {
           streamSid = msg.start.streamSid;
           callSid = msg.start.callSid;
 
-          console.log('\n🟢 CALL STARTED'.bgGreen.black);
-          console.log(`   streamSid: ${streamSid}`);
-          console.log(`   callSid:   ${callSid}`);
-          console.log(`   tracks:    ${JSON.stringify(msg.start.tracks)}`);
-          console.log(`   mediaFormat: ${JSON.stringify(msg.start.mediaFormat)}`);
+          console.log(`\n🟢 CALL STARTED — sid: ${callSid}`.bgGreen.black);
 
           streamService.setStreamSid(streamSid);
           gptService.setCallSid(callSid);
 
-          console.log('🎙️  Sending welcome TTS...'.cyan);
           ttsService.generate({
             partialResponseIndex: null,
             partialResponse: 'Welcome to Bart\'s Automotive. How can I help you today?'
@@ -122,66 +117,43 @@ app.ws('/connection', (ws) => {
 
         } else if (msg.event === 'media') {
           mediaPacketCount++;
-          if (mediaPacketCount === 1) {
-            console.log('🎵 First media packet received from Twilio ✅'.green);
-          }
-          if (mediaPacketCount % 500 === 0) {
-            console.log(`🎵 Media packets received: ${mediaPacketCount}`);
-          }
           transcriptionService.send(msg.media.payload);
 
         } else if (msg.event === 'mark') {
-          const label = msg.mark.name;
-          console.log(`✅ Audio mark completed: ${label}`.red);
-          marks = marks.filter(m => m !== label);
+          marks = marks.filter(m => m !== msg.mark.name);
 
         } else if (msg.event === 'stop') {
-          console.log(`\n🔴 CALL ENDED — stream ${streamSid}`.bgRed.white);
-          console.log(`   Total media packets: ${mediaPacketCount}`);
-          console.log(`   Total interactions:  ${interactionCount}`);
-
-        } else {
-          console.log(`❓ Unknown Twilio event: ${msg.event}`);
+          console.log(`\n🔴 CALL ENDED (${interactionCount} interactions)`.bgRed.white);
         }
       } catch (err) {
         console.error('❌ Error parsing WebSocket message:'.red, err);
       }
     });
 
-    // Interruption handling
     transcriptionService.on('utterance', async (text) => {
-      console.log(`👂 Interim transcript: "${text}"`);
       if (marks.length > 0 && text?.length > 5) {
-        console.log('⚡ Interruption detected — clearing audio stream'.red);
+        console.log('⚡ Interruption detected — clearing audio'.red);
         ws.send(JSON.stringify({ streamSid, event: 'clear' }));
       }
     });
 
-    // Final transcription → GPT
     transcriptionService.on('transcription', async (text) => {
       if (!text) return;
-      console.log(`\n💬 FINAL TRANSCRIPT: "${text}"`.yellow);
-      console.log(`   Sending to GPT (interaction ${interactionCount})...`);
+      console.log(`\n💬 USER: "${text}"`.yellow);
       gptService.completion(text, interactionCount);
       interactionCount += 1;
     });
 
-    // GPT reply → TTS
     gptService.on('gptreply', async (gptReply, icount) => {
-      console.log(`\n🤖 GPT REPLY [${icount}]: "${gptReply.partialResponse}"`.green);
-      console.log(`   Sending to TTS...`);
+      console.log(`\n🤖 GPT: "${gptReply.partialResponse}"`.green);
       ttsService.generate(gptReply, icount);
     });
 
-    // TTS audio → Twilio stream
-    ttsService.on('speech', (responseIndex, audio, label, icount) => {
-      console.log(`🔊 TTS audio ready [${icount}] index=${responseIndex}: "${label}"`.blue);
+    ttsService.on('speech', (responseIndex, audio) => {
       streamService.buffer(responseIndex, audio);
     });
 
-    // Track sent audio marks
     streamService.on('audiosent', (markLabel) => {
-      console.log(`📤 Audio sent to Twilio, mark: ${markLabel}`);
       marks.push(markLabel);
     });
 
