@@ -46,7 +46,7 @@ class GptService extends EventEmitter {
 
    // Get streaming response from GPT
    const stream = await this.openai.chat.completions.create({
-     model: 'chatgpt-4o-latest',
+     model: 'chatgpt-4o',
      messages: this.userContext,
      stream: true,
    });
