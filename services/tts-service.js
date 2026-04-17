@@ -16,7 +16,7 @@ class TextToSpeechService extends EventEmitter {
 
     if (!partialResponse) return;
 
-    const text = partialResponse.replace(/•/g, ' ').trim();
+    const text = partialResponse.trim();
 
     try {
       const response = await fetch(

@@ -16,8 +16,7 @@ class GptService extends EventEmitter {
        Key Information:
        - Hours: Monday to Friday 9 AM to 5 PM
        - Address: 123 Little Collins Street, Melbourne
-       - Services: Car service, brake repairs, transmission work, towing, and general repairs
-       You must add a '•' symbol every 5 to 10 words at natural pauses where your response can be split for text to speech.` 
+       - Services: Car service, brake repairs, transmission work, towing, and general repairs`
      },
      // Welcome message
      { 'role': 'assistant', 'content': 'Welcome to Bart\'s Automotive. • How can I help you today?' },
@@ -51,29 +50,17 @@ class GptService extends EventEmitter {
      stream: true,
    });
 
-   // Track both complete response and chunks for speaking
    let completeResponse = '';
-   let partialResponse = '';
 
-   // Process each piece of GPT's response as it comes
    for await (const chunk of stream) {
-     let content = chunk.choices[0]?.delta?.content || '';
-     let finishReason = chunk.choices[0].finish_reason;
-
-     completeResponse += content;
-     partialResponse += content;
-
-     // When we hit a pause marker (•) or the end, send that chunk for speech
-     if (content.trim().slice(-1) === '•' || finishReason === 'stop') {
-       const gptReply = { 
-         partialResponseIndex: this.partialResponseIndex,
-         partialResponse
-       };
-       this.emit('gptreply', gptReply, interactionCount);
-       this.partialResponseIndex++;
-       partialResponse = '';
-     }
+     completeResponse += chunk.choices[0]?.delta?.content || '';
    }
+
+   this.emit('gptreply', {
+     partialResponseIndex: this.partialResponseIndex,
+     partialResponse: completeResponse,
+   }, interactionCount);
+   this.partialResponseIndex++;
 
    // Add GPT's complete response to conversation history
    this.userContext.push({'role': 'assistant', 'content': completeResponse});
