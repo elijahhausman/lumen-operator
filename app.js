@@ -16,55 +16,20 @@ ExpressWs(app);
 
 const PORT = process.env.PORT || 3000;
 
-// ─── STARTUP DIAGNOSTICS ────────────────────────────────────────────────────
-console.log('=== LUMEN OPERATOR STARTING ==='.bgWhite.black);
-console.log(`PORT:          ${PORT}`);
-console.log(`SERVER:        ${process.env.SERVER || '❌ NOT SET'}`);
-console.log(`ELEVENLABS KEY:    ${process.env.ELEVENLABS_API_KEY ? '✅ set' : '❌ NOT SET'}`);
-console.log(`ELEVENLABS VOICE:  ${process.env.ELEVENLABS_VOICE_ID || '❌ NOT SET'}`);
-console.log(`OPENAI KEY:        ${process.env.OPENAI_API_KEY ? '✅ set' : '❌ NOT SET'}`);
-console.log(`WebSocket URL will be: wss://${process.env.SERVER}/connection`);
-console.log('═══════════════════════════════'.bgWhite.black);
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Parse incoming POST bodies (needed for Twilio webhooks)
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-// Health check — lets you confirm the app is alive from a browser
-app.get('/', (req, res) => {
-  res.send(`
-    <h2>Lumen Operator is running ✅</h2>
-    <p>SERVER: ${process.env.SERVER || 'NOT SET ❌'}</p>
-    <p>WebSocket target: wss://${process.env.SERVER}/connection</p>
-    <p>ELEVENLABS: ${process.env.ELEVENLABS_API_KEY ? '✅' : '❌ NOT SET'}</p>
-    <p>OPENAI: ${process.env.OPENAI_API_KEY ? '✅' : '❌ NOT SET'}</p>
-  `);
-});
-
 // ─── INCOMING CALL WEBHOOK ───────────────────────────────────────────────────
-app.post('/incoming', (req, res) => {
-  console.log('\n📞 INCOMING CALL HIT'.bgGreen.black);
-  console.log('Headers:', JSON.stringify(req.headers, null, 2));
-  console.log('Body:', JSON.stringify(req.body, null, 2));
-
+app.post('/incoming', (_req, res) => {
   try {
-    if (!process.env.SERVER) {
-      console.error('❌ SERVER env var is not set — WebSocket URL will be broken!'.red);
-    }
-
-    const wsUrl = `wss://${process.env.SERVER}/connection`;
-    console.log(`📡 Telling Twilio to connect to: ${wsUrl}`.cyan);
-
     const response = new VoiceResponse();
-    const connect = response.connect();
-    connect.stream({ url: wsUrl });
-
-    const twiml = response.toString();
-    console.log('📄 TwiML response:', twiml);
-
+    response.connect().stream({ url: `wss://${process.env.SERVER}/connection` });
+    
     res.type('text/xml');
-    res.end(twiml);
+    res.end(response.toString());
   } catch (err) {
     console.error('❌ Error in /incoming:'.red, err);
     res.status(500).send('Internal Server Error');
