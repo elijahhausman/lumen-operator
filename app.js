@@ -1,4 +1,3 @@
-// Import required packages and services
 require('dotenv').config();
 require('colors');
 
@@ -12,40 +11,80 @@ const { TextToSpeechService } = require('./services/tts-service');
 
 const VoiceResponse = require('twilio').twiml.VoiceResponse;
 
-// Set up Express with WebSocket support
 const app = express();
 ExpressWs(app);
 
-// Add this
-app.use((req, res, next) => {
-  res.setHeader('Connection', 'keep-alive');
-  next();
-});
-
 const PORT = process.env.PORT || 3000;
 
-// Handle incoming calls from Twilio
-app.post('/incoming', (req, res) => {
-  try {
-    const response = new VoiceResponse();
-    const connect = response.connect();
+// ─── STARTUP DIAGNOSTICS ────────────────────────────────────────────────────
+console.log('=== LUMEN OPERATOR STARTING ==='.bgWhite.black);
+console.log(`PORT:          ${PORT}`);
+console.log(`SERVER:        ${process.env.SERVER || '❌ NOT SET'}`);
+console.log(`DEEPGRAM KEY:  ${process.env.DEEPGRAM_API_KEY ? '✅ set' : '❌ NOT SET'}`);
+console.log(`OPENAI KEY:    ${process.env.OPENAI_API_KEY ? '✅ set' : '❌ NOT SET'}`);
+console.log(`VOICE MODEL:   ${process.env.VOICE_MODEL || '❌ NOT SET'}`);
+console.log(`WebSocket URL will be: wss://${process.env.SERVER}/connection`);
+console.log('═══════════════════════════════'.bgWhite.black);
+// ─────────────────────────────────────────────────────────────────────────────
 
-    // Tell Twilio where to connect the call's media stream
-    connect.stream({ url: `wss://${process.env.SERVER}/connection` });
-    
-    res.type('text/xml');
-    res.end(response.toString());
-  } catch (err) {
-    console.log(err);
-  }
+// Parse incoming POST bodies (needed for Twilio webhooks)
+app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
+
+// Health check — lets you confirm the app is alive from a browser
+app.get('/', (req, res) => {
+  res.send(`
+    <h2>Lumen Operator is running ✅</h2>
+    <p>SERVER: ${process.env.SERVER || 'NOT SET ❌'}</p>
+    <p>WebSocket target: wss://${process.env.SERVER}/connection</p>
+    <p>DEEPGRAM: ${process.env.DEEPGRAM_API_KEY ? '✅' : '❌ NOT SET'}</p>
+    <p>OPENAI: ${process.env.OPENAI_API_KEY ? '✅' : '❌ NOT SET'}</p>
+  `);
 });
 
-// Handle WebSocket connection for the call's audio
-app.ws('/connection', (ws) => {
-  try {
-    ws.on('error', console.error);
+// ─── INCOMING CALL WEBHOOK ───────────────────────────────────────────────────
+app.post('/incoming', (req, res) => {
+  console.log('\n📞 INCOMING CALL HIT'.bgGreen.black);
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Body:', JSON.stringify(req.body, null, 2));
 
-    // Variables to track the call and its audio
+  try {
+    if (!process.env.SERVER) {
+      console.error('❌ SERVER env var is not set — WebSocket URL will be broken!'.red);
+    }
+
+    const wsUrl = `wss://${process.env.SERVER}/connection`;
+    console.log(`📡 Telling Twilio to connect to: ${wsUrl}`.cyan);
+
+    const response = new VoiceResponse();
+    const connect = response.connect();
+    connect.stream({ url: wsUrl });
+
+    const twiml = response.toString();
+    console.log('📄 TwiML response:', twiml);
+
+    res.type('text/xml');
+    res.end(twiml);
+  } catch (err) {
+    console.error('❌ Error in /incoming:'.red, err);
+    res.status(500).send('Internal Server Error');
+  }
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── WEBSOCKET CONNECTION ────────────────────────────────────────────────────
+app.ws('/connection', (ws) => {
+  console.log('\n🔌 WEBSOCKET /connection opened'.bgBlue.white);
+
+  try {
+    ws.on('error', (err) => {
+      console.error('❌ WebSocket error:'.red, err);
+    });
+
+    ws.on('close', (code, reason) => {
+      console.log(`🔌 WebSocket closed — code: ${code}, reason: ${reason || 'none'}`.yellow);
+    });
+
     let streamSid;
     let callSid;
 
@@ -53,85 +92,105 @@ app.ws('/connection', (ws) => {
     const streamService = new StreamService(ws);
     const transcriptionService = new TranscriptionService();
     const ttsService = new TextToSpeechService({});
-    
-    let marks = [];              // Track audio completion markers
-    let interactionCount = 0;    // Count back-and-forth exchanges
 
-    // Handle incoming messages from Twilio
+    let marks = [];
+    let interactionCount = 0;
+    let mediaPacketCount = 0;
+
     ws.on('message', function message(data) {
-      const msg = JSON.parse(data);
+      try {
+        const msg = JSON.parse(data);
 
-      if (msg.event === 'start') {
-        // Call started - set up IDs and send welcome message
-        streamSid = msg.start.streamSid;
-        callSid = msg.start.callSid;
-        streamService.setStreamSid(streamSid);
-        gptService.setCallSid(callSid);
-        
-        console.log(`Twilio -> Starting Media Stream for ${streamSid}`.underline.red);
-        ttsService.generate({partialResponseIndex: null, partialResponse: 'Welcome to Bart\'s Automotive. • How can I help you today?'}, 0);
-      } else if (msg.event === 'media') {
-        // Received audio from caller - send to transcription
-        transcriptionService.send(msg.media.payload);
-      } else if (msg.event === 'mark') {
-        // Audio piece finished playing
-        const label = msg.mark.name;
+        if (msg.event === 'start') {
+          streamSid = msg.start.streamSid;
+          callSid = msg.start.callSid;
 
-        console.log(`Twilio -> Audio completed mark (${msg.sequenceNumber}): ${label}`.red);
-        marks = marks.filter(m => m !== msg.mark.name);
-      } else if (msg.event === 'stop') {
-        // Call ended
-        console.log(`Twilio -> Media stream ${streamSid} ended.`.underline.red);
+          console.log('\n🟢 CALL STARTED'.bgGreen.black);
+          console.log(`   streamSid: ${streamSid}`);
+          console.log(`   callSid:   ${callSid}`);
+          console.log(`   tracks:    ${JSON.stringify(msg.start.tracks)}`);
+          console.log(`   mediaFormat: ${JSON.stringify(msg.start.mediaFormat)}`);
+
+          streamService.setStreamSid(streamSid);
+          gptService.setCallSid(callSid);
+
+          console.log('🎙️  Sending welcome TTS...'.cyan);
+          ttsService.generate({
+            partialResponseIndex: null,
+            partialResponse: 'Welcome to Bart\'s Automotive. • How can I help you today?'
+          }, 0);
+
+        } else if (msg.event === 'media') {
+          mediaPacketCount++;
+          if (mediaPacketCount === 1) {
+            console.log('🎵 First media packet received from Twilio ✅'.green);
+          }
+          if (mediaPacketCount % 500 === 0) {
+            console.log(`🎵 Media packets received: ${mediaPacketCount}`);
+          }
+          transcriptionService.send(msg.media.payload);
+
+        } else if (msg.event === 'mark') {
+          const label = msg.mark.name;
+          console.log(`✅ Audio mark completed: ${label}`.red);
+          marks = marks.filter(m => m !== label);
+
+        } else if (msg.event === 'stop') {
+          console.log(`\n🔴 CALL ENDED — stream ${streamSid}`.bgRed.white);
+          console.log(`   Total media packets: ${mediaPacketCount}`);
+          console.log(`   Total interactions:  ${interactionCount}`);
+
+        } else {
+          console.log(`❓ Unknown Twilio event: ${msg.event}`);
+        }
+      } catch (err) {
+        console.error('❌ Error parsing WebSocket message:'.red, err);
       }
     });
 
-    // Handle interruptions (caller speaking while assistant is)
+    // Interruption handling
     transcriptionService.on('utterance', async (text) => {
-      if(marks.length > 0 && text?.length > 5) {
-        console.log('Twilio -> Interruption, Clearing stream'.red);
-        
-        ws.send(
-          JSON.stringify({
-            streamSid,
-            event: 'clear',
-          })
-        );
+      console.log(`👂 Interim transcript: "${text}"`);
+      if (marks.length > 0 && text?.length > 5) {
+        console.log('⚡ Interruption detected — clearing audio stream'.red);
+        ws.send(JSON.stringify({ streamSid, event: 'clear' }));
       }
     });
 
-    // Process transcribed text through GPT
+    // Final transcription → GPT
     transcriptionService.on('transcription', async (text) => {
-      if (!text)
-        return;
-      
-      console.log(`Interaction ${interactionCount} – STT -> GPT: ${text}`.yellow);
-      
+      if (!text) return;
+      console.log(`\n💬 FINAL TRANSCRIPT: "${text}"`.yellow);
+      console.log(`   Sending to GPT (interaction ${interactionCount})...`);
       gptService.completion(text, interactionCount);
       interactionCount += 1;
     });
 
-    // Send GPT's response to text-to-speech
+    // GPT reply → TTS
     gptService.on('gptreply', async (gptReply, icount) => {
-      console.log(`Interaction ${icount}: GPT -> TTS: ${gptReply.partialResponse}`.green );
+      console.log(`\n🤖 GPT REPLY [${icount}]: "${gptReply.partialResponse}"`.green);
+      console.log(`   Sending to TTS...`);
       ttsService.generate(gptReply, icount);
     });
 
-    // Send converted speech to caller
+    // TTS audio → Twilio stream
     ttsService.on('speech', (responseIndex, audio, label, icount) => {
-      console.log(`Interaction ${icount}: TTS -> TWILIO: ${label}`.blue);
+      console.log(`🔊 TTS audio ready [${icount}] index=${responseIndex}: "${label}"`.blue);
       streamService.buffer(responseIndex, audio);
     });
 
-    // Track when audio pieces are sent
+    // Track sent audio marks
     streamService.on('audiosent', (markLabel) => {
+      console.log(`📤 Audio sent to Twilio, mark: ${markLabel}`);
       marks.push(markLabel);
     });
- } catch (err) {
-    console.log(err);
- }
-});
 
-// Start the server
+  } catch (err) {
+    console.error('❌ Fatal error in /connection WebSocket handler:'.red, err);
+  }
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`\n✅ Server running on port ${PORT}`.bgGreen.black);
 });
