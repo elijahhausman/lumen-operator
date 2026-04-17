@@ -103,7 +103,9 @@ app.ws('/connection', (ws) => {
     });
 
     transcriptionService.on('transcription', async (text) => {
-      if (!text) return;
+      if (!text)
+        return;
+      
       console.log(`\n💬 USER: "${text}"`.yellow);
       gptService.completion(text, interactionCount);
       interactionCount += 1;

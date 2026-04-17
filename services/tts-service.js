@@ -39,6 +39,7 @@ class TextToSpeechService extends EventEmitter {
           const blob = await response.blob();
           const audioArrayBuffer = await blob.arrayBuffer();
           const base64String = Buffer.from(audioArrayBuffer).toString('base64');
+          console.log(`🔊 TTS ready: "${text}"`.blue);
           this.emit('speech', partialResponseIndex, base64String, partialResponse, interactionCount);
         } catch (err) {
           console.error('Error processing ElevenLabs audio:', err);

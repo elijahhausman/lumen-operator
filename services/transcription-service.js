@@ -17,12 +17,16 @@ class TranscriptionService extends EventEmitter {
     this.ws.on('message', (data) => {
       try {
         const msg = JSON.parse(data);
+        
         if (msg.message_type === 'partial_transcript') {
           const text = msg.text || '';
-          if (text.trim()) this.emit('utterance', text);
+
+          if (text.trim())
+            this.emit('utterance', text);
 
         } else if (msg.message_type === 'final_transcript') {
           const text = msg.text || '';
+
           if (text.trim()) {
             console.log(`💬 FINAL: "${text}"`.yellow);
             this.emit('transcription', text.trim());
