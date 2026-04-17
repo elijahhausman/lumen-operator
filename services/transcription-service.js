@@ -13,6 +13,10 @@ class TranscriptionService extends EventEmitter {
     });
 
     this.ws.on('open', () => {
+      this.ws.send(JSON.stringify({
+        message_type: 'session_config',
+        audio_format: 'mulaw_8000',
+      }));
       console.log('STT -> ElevenLabs connection opened'.green);
     });
 
