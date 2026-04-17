@@ -8,7 +8,7 @@ class TranscriptionService extends EventEmitter {
 
     this.finalResult = '';
 
-    this.ws = new WebSocket('wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&audio_format=mulaw_8000', {
+    this.ws = new WebSocket('wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&audio_format=ulaw_8000', {
       headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY },
     });
 
