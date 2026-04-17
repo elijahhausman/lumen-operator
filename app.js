@@ -20,9 +20,9 @@ const PORT = process.env.PORT || 3000;
 console.log('=== LUMEN OPERATOR STARTING ==='.bgWhite.black);
 console.log(`PORT:          ${PORT}`);
 console.log(`SERVER:        ${process.env.SERVER || '❌ NOT SET'}`);
-console.log(`DEEPGRAM KEY:  ${process.env.DEEPGRAM_API_KEY ? '✅ set' : '❌ NOT SET'}`);
-console.log(`OPENAI KEY:    ${process.env.OPENAI_API_KEY ? '✅ set' : '❌ NOT SET'}`);
-console.log(`VOICE MODEL:   ${process.env.VOICE_MODEL || '❌ NOT SET'}`);
+console.log(`ELEVENLABS KEY:    ${process.env.ELEVENLABS_API_KEY ? '✅ set' : '❌ NOT SET'}`);
+console.log(`ELEVENLABS VOICE:  ${process.env.ELEVENLABS_VOICE_ID || '❌ NOT SET'}`);
+console.log(`OPENAI KEY:        ${process.env.OPENAI_API_KEY ? '✅ set' : '❌ NOT SET'}`);
 console.log(`WebSocket URL will be: wss://${process.env.SERVER}/connection`);
 console.log('═══════════════════════════════'.bgWhite.black);
 // ─────────────────────────────────────────────────────────────────────────────
@@ -37,7 +37,7 @@ app.get('/', (req, res) => {
     <h2>Lumen Operator is running ✅</h2>
     <p>SERVER: ${process.env.SERVER || 'NOT SET ❌'}</p>
     <p>WebSocket target: wss://${process.env.SERVER}/connection</p>
-    <p>DEEPGRAM: ${process.env.DEEPGRAM_API_KEY ? '✅' : '❌ NOT SET'}</p>
+    <p>ELEVENLABS: ${process.env.ELEVENLABS_API_KEY ? '✅' : '❌ NOT SET'}</p>
     <p>OPENAI: ${process.env.OPENAI_API_KEY ? '✅' : '❌ NOT SET'}</p>
   `);
 });
@@ -117,7 +117,7 @@ app.ws('/connection', (ws) => {
           console.log('🎙️  Sending welcome TTS...'.cyan);
           ttsService.generate({
             partialResponseIndex: null,
-            partialResponse: 'Welcome to Bart\'s Automotive. • How can I help you today?'
+            partialResponse: 'Welcome to Bart\'s Automotive. How can I help you today?'
           }, 0);
 
         } else if (msg.event === 'media') {

@@ -1,98 +1,72 @@
-// Required libraries for colored logs, Deepgram SDK, and event handling
 require('colors');
-const { createClient, LiveTranscriptionEvents } = require('@deepgram/sdk');
+const WebSocket = require('ws');
 const { Buffer } = require('node:buffer');
 const EventEmitter = require('events');
 
 class TranscriptionService extends EventEmitter {
- constructor() {
-   super();
-   // Set up connection to Deepgram with API key
-   const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+  constructor() {
+    super();
 
-   // Configure live transcription settings
-   this.dgConnection = deepgram.listen.live({
-     encoding: 'mulaw',             // Audio encoding type
-     sample_rate: '8000',           // Phone call quality
-     model: 'nova-2',               // Deepgram model to use
-     punctuate: true,               // Add punctuation
-     interim_results: true,         // Get partial results
-     endpointing: 200,              // Detect speech endings
-     utterance_end_ms: 1000         // Wait time for utterance end
-   });
+    this.finalResult = '';
+    this.speechFinal = false;
 
-   this.finalResult = '';           // Store complete transcription
-   this.speechFinal = false;        // Track if speaker has finished naturally
+    this.ws = new WebSocket('wss://api.elevenlabs.io/v1/speech-to-text/stream', {
+      headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY },
+    });
 
-   // When connection opens, set up all event handlers
-   this.dgConnection.on(LiveTranscriptionEvents.Open, () => {
-     // Handle incoming transcription chunks
-     this.dgConnection.on(LiveTranscriptionEvents.Transcript, (transcriptionEvent) => {
-       const alternatives = transcriptionEvent.channel?.alternatives;
-       let text = '';
-       if (alternatives) {
-         text = alternatives[0]?.transcript;
-       }
+    this.ws.on('open', () => {
+      // Send stream config once connection is open
+      this.ws.send(JSON.stringify({
+        type: 'stream_start',
+        audio_format: 'mulaw_8000',
+      }));
+      console.log('STT -> ElevenLabs connection opened'.green);
+    });
 
-       // Handle end of utterance (speaker stopped talking)
-       if (transcriptionEvent.type === 'UtteranceEnd') {
-         if (!this.speechFinal) {
-           console.log(`UtteranceEnd received before speechFinal, emit the text collected so far: ${this.finalResult}`.yellow);
-           this.emit('transcription', this.finalResult);
-           return;
-         } else {
-           console.log('STT -> Speech was already final when UtteranceEnd recevied'.yellow);
-           return;
-         }
-       }
+    this.ws.on('message', (data) => {
+      try {
+        const msg = JSON.parse(data);
 
-       // Handle final transcription pieces
-       if (transcriptionEvent.is_final === true && text.trim().length > 0) {
-         this.finalResult += ` ${text}`;
+        if (msg.type === 'interim_transcript') {
+          const text = msg.text || '';
+          this.emit('utterance', text);
+          console.log(`👂 Interim transcript: "${text}"`);
 
-         // If speaker made a natural pause, send the transcription
-         if (transcriptionEvent.speech_final === true) {
-           this.speechFinal = true;  // Prevent duplicate sends
-           this.emit('transcription', this.finalResult);
-           this.finalResult = '';
-         } else {
-           // Reset for next utterance
-           this.speechFinal = false;
-         }
-       } else {
-         // Emit interim results for real-time feedback
-         this.emit('utterance', text);
-       }
-     });
+        } else if (msg.type === 'final_transcript') {
+          const text = msg.text || '';
+          if (text.trim().length > 0) {
+            this.finalResult += ` ${text}`;
+            this.speechFinal = true;
+            this.emit('transcription', this.finalResult.trim());
+            this.finalResult = '';
+            this.speechFinal = false;
+          }
 
-     // Error handling events
-     this.dgConnection.on(LiveTranscriptionEvents.Error, (error) => {
-       console.error('STT -> deepgram error');
-       console.error(error);
-     });
+        } else if (msg.type === 'error') {
+          console.error('STT -> ElevenLabs error:', msg);
+        }
+      } catch (err) {
+        console.error('STT -> Failed to parse message:', err);
+      }
+    });
 
-     this.dgConnection.on(LiveTranscriptionEvents.Warning, (warning) => {
-       console.error('STT -> deepgram warning');
-       console.error(warning);
-     });
+    this.ws.on('error', (err) => {
+      console.error('STT -> ElevenLabs WebSocket error:', err);
+    });
 
-     this.dgConnection.on(LiveTranscriptionEvents.Metadata, (metadata) => {
-       console.error('STT -> deepgram metadata');
-       console.error(metadata);
-     });
+    this.ws.on('close', () => {
+      console.log('STT -> ElevenLabs connection closed'.yellow);
+    });
+  }
 
-     this.dgConnection.on(LiveTranscriptionEvents.Close, () => {
-       console.log('STT -> Deepgram connection closed'.yellow);
-     });
-   });
- }
-
- // Send audio data to Deepgram for transcription
- send(payload) {
-   if (this.dgConnection.getReadyState() === 1) {  // Check if connection is open
-     this.dgConnection.send(Buffer.from(payload, 'base64'));
-   }
- }
+  send(payload) {
+    if (this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'audio_chunk',
+        audio: payload, // already base64 from Twilio
+      }));
+    }
+  }
 }
 
 module.exports = { TranscriptionService };
